@@ -1,3 +1,5 @@
+local locations = require("quiver.locations")
+
 local M = {}
 
 local buf, win
@@ -76,6 +78,7 @@ local function update_view(quiver)
     table.insert(msg, line)
   end
 
+  vim.api.nvim_buf_set_option(buf, "modifiable", true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, msg)
   vim.api.nvim_buf_set_option(buf, "modifiable", false)
 end
@@ -87,6 +90,8 @@ local function set_mappings(quiver)
     q = "close_window()",
     k = "move_cursor_up()",
     j = "move_cursor_down()",
+    h = "move_location_up()",
+    l = "move_location_down()",
   }
 
   for key, value in pairs(mappings) do
@@ -106,7 +111,7 @@ local function set_mappings(quiver)
   end
 
   local other_chars = {
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'l', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'i', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
   }
 
   for _, char in ipairs(other_chars) do
@@ -131,6 +136,25 @@ function M.move_cursor_down()
   vim.api.nvim_win_set_cursor(win, { new_pos, 0 })
 end
 
+function M.move_location_up()
+  local current_pos = vim.api.nvim_win_get_cursor(win)[1]
+  local new_pos = math.max(2, current_pos - 1)
+
+  if new_pos == current_pos then return end
+
+  M._move_up_fn(current_pos, new_pos)
+end
+
+function M.move_location_down()
+  local current_pos = vim.api.nvim_win_get_cursor(win)[1]
+  local line_count = vim.api.nvim_buf_line_count(buf)
+  local new_pos = math.min(line_count, vim.api.nvim_win_get_cursor(win)[1] + 1)
+
+  if new_pos == current_pos then return end
+
+  M._move_down_fn(current_pos, new_pos)
+end
+
 -- Open file under cursor
 function M.open_location_at_cursor()
   local row, _ = unpack(vim.api.nvim_win_get_cursor(0))
@@ -144,8 +168,12 @@ function M.open_location(idx)
   M._open_fn(idx)
 end
 
+-- function M.pick_location(quiver, open_fn, move_up_fn, move_down_fn, remove_fn, options)
 function M.pick_location(quiver, open_fn, options)
   M._open_fn = open_fn
+  M._move_up_fn = function(current, new) end
+  M._move_down_fn = function(current, new) end
+  M._remove_fn = function(current, new) end
   open_window(options.ui)
   set_mappings(quiver)
   update_view(quiver)
