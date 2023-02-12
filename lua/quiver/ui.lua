@@ -1,17 +1,30 @@
-local locations = require("quiver.locations")
-
 local M = {}
 
-local buf, win
-
+M._locations = {}
 M._open_fn = function(idx)
   print("quiver: provide function for opening location in index " .. idx)
 end
+M._move_location_fn = function(from_index, to_index)
+  print("quiver: provide function for moving location from index " .. from_index .. " to index " .. to_index)
+end
+M._remove_location_fn = function(index)
+  print("quiver: provide function for removing location from index " .. index)
+end
+
+local buf, win
 
 local function center(str)
   local width = vim.api.nvim_win_get_width(0)
   local shift = math.floor(width / 2) - math.floor(string.len(str) / 2)
   return string.rep(' ', shift) .. str
+end
+
+local function index2row(index)
+  return index + 1
+end
+
+local function row2index(winpos)
+  return winpos - 1
 end
 
 local function open_window(ui_options)
@@ -43,20 +56,77 @@ local function open_window(ui_options)
 
   win = vim.api.nvim_open_win(buf, true, opts)
 
-  vim.api.nvim_win_set_option(win, "wrap", ui_options.wrap)
-  vim.api.nvim_win_set_option(win, "winhighlight", ui_options.winhighlight)
+  if ui_options.wrap ~= nil then
+    vim.api.nvim_win_set_option(win, "wrap", ui_options.wrap)
+  end
 end
 
-local function update_view(quiver)
+local function truncate_file_path(filename, max_len)
+  -- local home_fixed = filename:gsub(os.getenv("HOME"), "~")
+  -- local path_parts = {}
+  --
+  -- for part in string.gmatch(home_fixed, "([^/]+)") do
+  --   table.insert(path_parts, part)
+  -- end
+  --
+  -- local file = table.remove(path_parts)
+  -- local short_path_parts = {}
+  -- local len = string.len(file) + 1
+  --
+  -- table.insert(short_path_parts, file)
+  --
+  -- for i=#path_parts, 1, -1 do
+  --   local part = path_parts[i]
+  --   local min_len_left_after_this = (i - 1) * 2
+  --   len = len + string.len(part) + 1
+  --
+  --   if len + min_len_left_after_this <= max_len then
+  --     table.insert(short_path_parts, 1, part)
+  --   else
+  --     table.insert(short_path_parts, 1, string.sub(part, 1, 1))
+  --   end
+  -- end
+  --
+  -- return table.concat(short_path_parts, "/")
+
+  filename = filename:gsub(os.getenv("HOME"), "~")
+  filename = vim.fn.simplify(filename)
+  return vim.fn.pathshorten(filename)
+end
+
+local function get_preview(fname, row)
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    local buf_fname = vim.api.nvim_buf_get_name(bufnr)
+
+    if fname == buf_fname and vim.api.nvim_buf_is_loaded(bufnr) then
+      return vim.api.nvim_buf_get_text(bufnr, row - 1, 0, row - 1, -1, {})
+    end
+  end
+
+  return { "<buffer not loaded>" }
+end
+
+local function format_location(location, max_len)
+  local str = truncate_file_path(location.file, max_len) .. " (".. location.row .. ", " .. location.col .. ")"
+  local preview = get_preview(location.file, location.row)
+
+  if preview ~= nil and #preview > 0 then
+    str = str .. " > " .. preview[1]
+  end
+
+  return str
+end
+
+local function update_view(locations)
   local msg = {}
 
   table.insert(msg, center("Quiver - Select location to go"))
 
-  if quiver == nil or #quiver == 0 then
+  if locations == nil or #locations == 0 then
     table.insert(msg, "quiver: no locations in quiver")
   end
 
-  for i, location in ipairs(quiver) do
+  for i, location in ipairs(locations) do
     local line = " "
 
     if i < 10 then
@@ -67,14 +137,7 @@ local function update_view(quiver)
       line = line .. "    "
     end
 
-    line = line .. location.file .. " (".. location.row .. ", " .. location.col .. ")"
-
-    local preview = vim.api.nvim_buf_get_text(location.bufnr, location.row - 1, 0, location.row, -1, {})
-
-    if preview then
-      line = line .. " > " .. preview[1]
-    end
-
+    line = line .. format_location(location, 36)
     table.insert(msg, line)
   end
 
@@ -83,24 +146,46 @@ local function update_view(quiver)
   vim.api.nvim_buf_set_option(buf, "modifiable", false)
 end
 
-local function set_mappings(quiver)
-  local mappings = {
-    ["<cr>"] = "open_location_at_cursor()",
-    ["<esc>"] = "close_window()",
-    q = "close_window()",
-    k = "move_cursor_up()",
-    j = "move_cursor_down()",
-    h = "move_location_up()",
-    l = "move_location_down()",
-  }
+local action_to_command_map = {
+  open_location = "open_location_at_cursor()",
+  open_location_in_vertical_split = "open_location_at_cursor({ open_in_split = 'vertical' })",
+  open_location_horizontal_split = "open_location_at_cursor({ open_in_split = 'horizontal' })",
+  close_window = "close_window()",
+  move_cursor_down = "move_cursor(1)",
+  move_cursor_up = "move_cursor(-1)",
+  move_location_down = "move_location_on_cursor(1)",
+  move_location_up = "move_location_on_cursor(-1)",
+  remove_location = "remove_location_at_cursor()",
+}
 
-  for key, value in pairs(mappings) do
-    vim.api.nvim_buf_set_keymap(buf, "n", key, ":lua require'quiver.ui'."..value.."<cr>", {
+local function get_keys_for_commands(keys_for_actions)
+  local keys_for_commands = {}
+
+  for action, key_object in pairs(keys_for_actions) do
+    local keys = key_object
+
+    if type(key_object) == "string" then
+      keys = { key_object }
+    end
+
+    for _, key in ipairs(keys) do
+      keys_for_commands[key] = action_to_command_map[action]
+    end
+  end
+
+  return keys_for_commands
+end
+
+local function set_mappings(locations, keys_for_actions)
+  local keys_for_commands = get_keys_for_commands(keys_for_actions)
+
+  for key, command in pairs(keys_for_commands) do
+    vim.api.nvim_buf_set_keymap(buf, "n", key, ":lua require'quiver.ui'."..command.."<cr>", {
       nowait = true, noremap = true, silent = true
     })
   end
 
-  for i, location in ipairs(quiver) do
+  for i, _ in ipairs(locations) do
     if i > 10 then
       break
     end
@@ -110,74 +195,96 @@ local function set_mappings(quiver)
     })
   end
 
-  local other_chars = {
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'i', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
+  local all_chars = {
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
   }
 
-  for _, char in ipairs(other_chars) do
-    vim.api.nvim_buf_set_keymap(buf, 'n', char, '', { nowait = true, noremap = true, silent = true })
-    vim.api.nvim_buf_set_keymap(buf, 'n', char:upper(), '', { nowait = true, noremap = true, silent = true })
-    vim.api.nvim_buf_set_keymap(buf, 'n', '<c-'..char..'>', '', { nowait = true, noremap = true, silent = true })
+  for _, char in ipairs(all_chars) do
+    if keys_for_commands[char] == nil then
+      vim.api.nvim_buf_set_keymap(buf, 'n', char, '', { nowait = true, noremap = true, silent = true })
+    end
+    if keys_for_commands[char:upper()] == nil then
+      vim.api.nvim_buf_set_keymap(buf, 'n', char:upper(), '', { nowait = true, noremap = true, silent = true })
+    end
+    if keys_for_commands["<c-"..char..">"] == nil then
+      vim.api.nvim_buf_set_keymap(buf, 'n', '<c-'..char..'>', '', { nowait = true, noremap = true, silent = true })
+    end
   end
+end
+
+local function adjust_row_of_location_under_cursor(row_change)
+  local current_row = vim.api.nvim_win_get_cursor(win)[1]
+  local line_count = vim.api.nvim_buf_line_count(buf)
+  return current_row, math.max(2, math.min(current_row + row_change, line_count))
 end
 
 function M.close_window()
   vim.api.nvim_win_close(win, true)
 end
 
-function M.move_cursor_up()
-  local new_pos = math.max(2, vim.api.nvim_win_get_cursor(win)[1] - 1)
-  vim.api.nvim_win_set_cursor(win, { new_pos, 0 })
+function M.move_cursor(row_change)
+  local _, new_row = adjust_row_of_location_under_cursor(row_change)
+  vim.api.nvim_win_set_cursor(win, { new_row, 0 })
 end
 
-function M.move_cursor_down()
-  local line_count = vim.api.nvim_buf_line_count(buf)
-  local new_pos = math.min(line_count, vim.api.nvim_win_get_cursor(win)[1] + 1)
-  vim.api.nvim_win_set_cursor(win, { new_pos, 0 })
+function M.move_location_on_cursor(row_change)
+  row_change = row_change or 1
+
+  local current_row, new_row = adjust_row_of_location_under_cursor(row_change)
+  local current_index = row2index(current_row)
+  local new_index = row2index(new_row)
+
+  if new_index == current_index then return end
+
+  M._move_location_fn(current_index, new_index)
+
+  update_view(M._locations)
+  M.move_cursor(row_change)
 end
 
-function M.move_location_up()
-  local current_pos = vim.api.nvim_win_get_cursor(win)[1]
-  local new_pos = math.max(2, current_pos - 1)
+function M.remove_location_at_cursor()
+  local row, _ = unpack(vim.api.nvim_win_get_cursor(0))
+  local index = row2index(row)
 
-  if new_pos == current_pos then return end
+  M._remove_location_fn(index)
 
-  M._move_up_fn(current_pos, new_pos)
+  update_view(M._locations)
 end
 
-function M.move_location_down()
-  local current_pos = vim.api.nvim_win_get_cursor(win)[1]
-  local line_count = vim.api.nvim_buf_line_count(buf)
-  local new_pos = math.min(line_count, vim.api.nvim_win_get_cursor(win)[1] + 1)
-
-  if new_pos == current_pos then return end
-
-  M._move_down_fn(current_pos, new_pos)
-end
-
--- Open file under cursor
-function M.open_location_at_cursor()
+--- Open file under cursor
+function M.open_location_at_cursor(opts)
+  opts = opts or {}
   local row, _ = unpack(vim.api.nvim_win_get_cursor(0))
   M.close_window()
-  M._open_fn(row - 1)
+  M._open_fn(row2index(row))
 end
 
--- Open file in position
+--- Open file in position
 function M.open_location(idx)
   M.close_window()
   M._open_fn(idx)
 end
 
--- function M.pick_location(quiver, open_fn, move_up_fn, move_down_fn, remove_fn, options)
-function M.pick_location(quiver, open_fn, options)
+function M.pick_location_in_float(locations, open_fn, move_location_fn, remove_location_fn, ui_options)
+  M._locations = locations
   M._open_fn = open_fn
-  M._move_up_fn = function(current, new) end
-  M._move_down_fn = function(current, new) end
-  M._remove_fn = function(current, new) end
-  open_window(options.ui)
-  set_mappings(quiver)
-  update_view(quiver)
-  vim.api.nvim_win_set_cursor(win, { 2, 0 })
+  M._move_location_fn = move_location_fn
+  M._remove_location_fn = remove_location_fn
+  open_window(ui_options)
+  set_mappings(locations, ui_options.keys_for_actions)
+  update_view(locations)
+  vim.api.nvim_win_set_cursor(win, { index2row(1), 0 })
+end
+
+function M.pick_location(locations, open_fn)
+  vim.ui.select(locations, {
+    prompt = "Select location to go:",
+    format_item = function(loc)
+      return format_location(loc, 72)
+    end,
+  }, function(_, idx)
+    open_fn(idx)
+  end)
 end
 
 return M
