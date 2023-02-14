@@ -11,7 +11,7 @@ M._remove_location_fn = function(index)
   print("quiver: provide function for removing location from index " .. index)
 end
 
-local buf, win
+local buf, win, prev_guicursor
 
 local function center(str)
   local width = vim.api.nvim_win_get_width(0)
@@ -25,6 +25,32 @@ end
 
 local function row2index(winpos)
   return winpos - 1
+end
+
+local function set_options(window, buffer, ui_options)
+  vim.api.nvim_set_hl(0, "QuiverWindowCursor", { reverse = true, blend = 100 })
+
+  vim.api.nvim_win_set_option(window, "winhl", "Normal:Normal")
+  vim.api.nvim_win_set_option(window, "cursorline", true)
+
+  if ui_options.wrap ~= nil then
+    vim.api.nvim_win_set_option(win, "wrap", ui_options.wrap)
+  end
+
+  -- guicursor needs to be set globally
+  -- save original value and add autocmd to return it after user leaves the window
+  prev_guicursor = vim.go.guicursor
+  vim.api.nvim_set_option("guicursor", "a:QuiverWindowCursor")
+
+  local augroup = vim.api.nvim_create_augroup("QuiverWindowAugroup", {})
+  vim.api.nvim_create_autocmd({ "WinLeave" }, {
+    buffer = buffer,
+    callback = function()
+      vim.go.guicursor = prev_guicursor
+      vim.api.nvim_del_augroup_by_id(augroup)
+    end,
+    group = augroup,
+  })
 end
 
 local function open_window(ui_options)
@@ -56,9 +82,7 @@ local function open_window(ui_options)
 
   win = vim.api.nvim_open_win(buf, true, opts)
 
-  if ui_options.wrap ~= nil then
-    vim.api.nvim_win_set_option(win, "wrap", ui_options.wrap)
-  end
+  set_options(win, buf, ui_options)
 end
 
 local function truncate_file_path(filename, max_len)
