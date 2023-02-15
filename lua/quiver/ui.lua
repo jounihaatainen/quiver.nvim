@@ -118,16 +118,30 @@ local function truncate_file_path(filename, max_len)
   return vim.fn.pathshorten(filename)
 end
 
-local function get_preview(fname, row)
+local function get_buf_if_loaded(fname)
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     local buf_fname = vim.api.nvim_buf_get_name(bufnr)
 
     if fname == buf_fname and vim.api.nvim_buf_is_loaded(bufnr) then
-      return vim.api.nvim_buf_get_text(bufnr, row - 1, 0, row - 1, -1, {})
+      return bufnr
     end
   end
 
-  return { "<buffer not loaded>" }
+  return -1
+end
+
+local function get_preview(fname, row)
+ local bufnr = get_buf_if_loaded(fname)
+
+  if bufnr >= 0 then
+    return vim.api.nvim_buf_get_text(bufnr, row - 1, 0, row - 1, -1, {})
+  end
+
+  if vim.fn.filereadable(fname) > 0 then
+    return vim.fn.systemlist({ "sed" , row .. "!d ", fname })
+  end
+
+  return { "<file is missing>" }
 end
 
 local function format_location(location, max_len)
