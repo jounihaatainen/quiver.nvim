@@ -85,34 +85,7 @@ local function open_window(ui_options)
   set_options(win, buf, ui_options)
 end
 
-local function truncate_file_path(filename, max_len)
-  -- local home_fixed = filename:gsub(os.getenv("HOME"), "~")
-  -- local path_parts = {}
-  --
-  -- for part in string.gmatch(home_fixed, "([^/]+)") do
-  --   table.insert(path_parts, part)
-  -- end
-  --
-  -- local file = table.remove(path_parts)
-  -- local short_path_parts = {}
-  -- local len = string.len(file) + 1
-  --
-  -- table.insert(short_path_parts, file)
-  --
-  -- for i=#path_parts, 1, -1 do
-  --   local part = path_parts[i]
-  --   local min_len_left_after_this = (i - 1) * 2
-  --   len = len + string.len(part) + 1
-  --
-  --   if len + min_len_left_after_this <= max_len then
-  --     table.insert(short_path_parts, 1, part)
-  --   else
-  --     table.insert(short_path_parts, 1, string.sub(part, 1, 1))
-  --   end
-  -- end
-  --
-  -- return table.concat(short_path_parts, "/")
-
+local function truncate_file_path(filename)
   filename = filename:gsub(os.getenv("HOME"), "~")
   filename = vim.fn.simplify(filename)
   return vim.fn.pathshorten(filename)
@@ -144,8 +117,8 @@ local function get_preview(fname, row)
   return { "<file is missing>" }
 end
 
-local function format_location(location, max_len)
-  local str = truncate_file_path(location.file, max_len) .. " (".. location.row .. ", " .. location.col .. ")"
+local function format_location(location)
+  local str = truncate_file_path(location.file) .. " (".. location.row .. ", " .. location.col .. ")"
   local preview = get_preview(location.file, location.row)
 
   if preview ~= nil and #preview > 0 then
@@ -175,7 +148,7 @@ local function update_view(locations)
       line = line .. "    "
     end
 
-    line = line .. format_location(location, 36)
+    line = line .. format_location(location)
     table.insert(msg, line)
   end
 
