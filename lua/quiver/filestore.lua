@@ -1,10 +1,6 @@
-local M = {}
+local file_utils = require("quiver.file_utils")
 
-local function ensure_directory_exists(directory)
-  if vim.fn.isdirectory(directory) == 0 then
-    vim.fn.mkdir(directory, "p")
-  end
-end
+local M = {}
 
 local function trim(s)
    return (s:gsub("^%s*(.-)%s*$", "%1"))
@@ -82,7 +78,7 @@ end
 -- @param options The options for saving locations. See above for default values.
 function M.save(locations, opts)
   opts = ensure_default_options_exist(opts)
-  ensure_directory_exists(opts.data_dir)
+  file_utils.ensure_directory_exists(opts.data_dir)
   save(locations, vim.fn.resolve(opts.data_dir .. "/" .. opts.filename))
 end
 

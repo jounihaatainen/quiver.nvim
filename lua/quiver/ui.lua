@@ -1,3 +1,5 @@
+local file_utils = require("quiver.file_utils")
+
 local M = {}
 
 M._locations = {}
@@ -85,12 +87,6 @@ local function open_window(ui_options)
   set_options(win, buf, ui_options)
 end
 
-local function truncate_file_path(filename)
-  filename = filename:gsub(os.getenv("HOME"), "~")
-  filename = vim.fn.simplify(filename)
-  return vim.fn.pathshorten(filename)
-end
-
 local function get_buf_if_loaded(fname)
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     local buf_fname = vim.api.nvim_buf_get_name(bufnr)
@@ -110,15 +106,16 @@ local function get_preview(fname, row)
     return vim.api.nvim_buf_get_text(bufnr, row - 1, 0, row - 1, -1, {})
   end
 
-  if vim.fn.filereadable(fname) > 0 then
-    return vim.fn.systemlist({ "sed" , row .. "!d ", fname })
-  end
-
-  return { "<file is missing>" }
+  -- if vim.fn.filereadable(fname) > 0 then
+  --   return vim.fn.systemlist({ "sed" , row .. "!d ", fname })
+  -- end
+  --
+  -- return { "<file is missing>" }
+ return file_utils.get_rows(fname, row, 3, "<file is missing>")
 end
 
 local function format_location(location)
-  local str = truncate_file_path(location.file) .. " (".. location.row .. ", " .. location.col .. ")"
+  local str = file_utils.shorten_file_path(location.file) .. " (".. location.row .. ", " .. location.col .. ")"
   local preview = get_preview(location.file, location.row)
 
   if preview ~= nil and #preview > 0 then
