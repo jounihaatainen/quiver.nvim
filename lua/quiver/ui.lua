@@ -15,18 +15,18 @@ end
 
 local buf, win, prev_guicursor
 
-local function center(str)
-  local width = vim.api.nvim_win_get_width(0)
-  local shift = math.floor(width / 2) - math.floor(string.len(str) / 2)
-  return string.rep(' ', shift) .. str
-end
+-- local function center(str)
+--   local width = vim.api.nvim_win_get_width(0)
+--   local shift = math.floor(width / 2) - math.floor(string.len(str) / 2)
+--   return string.rep(' ', shift) .. str
+-- end
 
 local function index2row(index)
-  return index + 1
+  return index
 end
 
 local function row2index(winpos)
-  return winpos - 1
+  return winpos
 end
 
 local function set_options(window, buffer, ui_options)
@@ -76,6 +76,8 @@ local function open_window(ui_options)
     style = ui_options.style,
     relative = ui_options.relative,
     border = ui_options.border,
+    title = " Quiver - Select location to go ",
+    title_pos = "center",
     width = win_width,
     height = win_height,
     row = row,
@@ -127,8 +129,6 @@ end
 
 local function update_view(locations)
   local msg = {}
-
-  table.insert(msg, center("Quiver - Select location to go"))
 
   if locations == nil or #locations == 0 then
     table.insert(msg, "quiver: no locations in quiver")
@@ -223,7 +223,7 @@ end
 local function adjust_row_of_location_under_cursor(row_change)
   local current_row = vim.api.nvim_win_get_cursor(win)[1]
   local line_count = vim.api.nvim_buf_line_count(buf)
-  return current_row, math.max(2, math.min(current_row + row_change, line_count))
+  return current_row, math.max(1, math.min(current_row + row_change, line_count))
 end
 
 function M.close_window()
@@ -288,7 +288,7 @@ function M.pick_location(locations, open_fn)
   vim.ui.select(locations, {
     prompt = "Select location to go:",
     format_item = function(loc)
-      return format_location(loc, 72)
+      return format_location(loc)
     end,
   }, function(_, idx)
     open_fn(idx)
